@@ -6,7 +6,7 @@ permiten la extracción de representaciones latentes de parches mediante redes p
 
 Contenido:
   - PatchEmbeddingPretrained (model_name, device)
-  - PatchEmbeddingUNet (device)
+  - PatchEmbeddingUNet (dimensions, device)
 
 Uso:
   from feature_extractor import PatchEmbeddingPretrained, PatchEmbeddingUNet 
