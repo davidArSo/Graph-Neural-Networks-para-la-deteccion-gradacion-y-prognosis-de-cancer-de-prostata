@@ -2,12 +2,15 @@
 train_model.py - Funciones para el entrenamiento y validación del modelo GNN.
 
 Este fichero proporciona funciones de entrenamiento y validación del modelo GNN en tareas 
-de clasificación de grados gleason, isup y detección de cáncer.
+de clasificación de grados gleason (primario, secundario y ambos), isup y detección de cáncer.
 
 Contenido:
   - train_gleason(model, device, train_loader, optimizer, criterion, gleason_mapping, train_primary=True, train_secondary=True)
   - validate_gleason(model, device, val_loader, criterion, gleason_mapping, validate_primary=True, validate_secondary=True)
   - train_validate_gleason(model, device, train_loader, val_loader, optimizer, scheduler, criterion, num_epochs, gleason_mapping, train_validate_primary=True, train_validate_secondary=True)
+  - train_sum_gleason(model, device, train_loader, optimizer, criterion, gleason_mapping)
+  - validate_sum_gleason(model, device, val_loader, criterion, gleason_mapping)
+  - train_validate_sum_gleason(model, device, train_loader, val_loader, optimizer, scheduler, criterion, num_epochs, gleason_mapping)
   - train_isup(model, device, train_loader, optimizer, criterion)
   - validate_isup(model, device, validate_loader, criterion):
   - train_validate_isup(model, device, train_loader, val_loader, optimizer, scheduler, criterion, num_epochs)
@@ -16,7 +19,7 @@ Contenido:
   - train_validate_cancer_present(model, device, train_loader, val_loader, optimizer, scheduler, criterion, num_epochs)
 
 Uso:
-  from train_model import train_validate_gleason, train_validate_isup, train_validate_cancer_present
+  from train_model import train_validate_gleason, train_validate_sum_gleason, train_validate_isup, train_validate_cancer_present
 """
 
 import torch
@@ -60,7 +63,7 @@ def train_gleason(model, device, train_loader, optimizer, criterion, gleason_map
 
     if train_primary and train_secondary:
       correct_pairs += ((primary_predicted == gleason_primary_target) & (secondary_predicted == gleason_secondary_target)).sum().item()
-
+      
     optimizer.step()
 
     total += gleason_primary_target.size(0)
@@ -180,6 +183,105 @@ def train_validate_gleason(model, device, train_loader, val_loader, optimizer, s
 
   plt.show()
   
+def train_sum_gleason(model, device, train_loader, optimizer, criterion, gleason_mapping):
+  model.to(device)
+  model.train()
+
+  running_loss = 0.0
+  correct = 0
+  total = 0
+
+  for batch_idx, graph in enumerate(train_loader):
+    graph = graph.to(device)
+    optimizer.zero_grad()
+
+    gleason_output = model(graph)
+
+    gleason_labels = [primary.item() + secondary.item() for primary, secondary in zip(graph.gleason_primary, graph.gleason_secondary)]
+    gleason_target = torch.tensor([gleason_mapping[gleason_label] for gleason_label in gleason_labels], device=device)
+
+    loss = criterion(gleason_output, gleason_target)
+    running_loss += loss.item()
+    loss.backward()
+
+    _, predicted = torch.max((gleason_output).data, 1)
+    correct += (predicted == gleason_target).sum().item()
+   
+    optimizer.step()
+    total += gleason_target.size(0)
+
+  avg_loss = running_loss / len(train_loader)
+  accuracy = correct / total
+
+  return avg_loss, accuracy
+  
+def validate_sum_gleason(model, device, val_loader, criterion, gleason_mapping):
+  model.to(device)
+  model.eval()
+
+  running_loss = 0.0
+  correct = 0
+  total = 0
+
+  with torch.no_grad():
+    for batch_idx, graph in enumerate(val_loader):
+      graph = graph.to(device)
+
+      gleason_output = model(graph)
+
+      gleason_labels = [primary.item() + secondary.item() for primary, secondary in zip(graph.gleason_primary, graph.gleason_secondary)]
+      gleason_target = torch.tensor([gleason_mapping[label] for label in gleason_labels], device=device)
+
+      loss = criterion(gleason_output, gleason_target)
+      running_loss += loss.item()
+
+      _, predicted = torch.max(gleason_output.data, 1)
+      correct += (predicted == gleason_target).sum().item()
+
+      total += gleason_target.size(0)
+
+  avg_loss = running_loss / len(val_loader)
+  accuracy = correct / total
+
+  return avg_loss, accuracy
+
+def train_validate_sum_gleason(model, device, train_loader, val_loader, optimizer, scheduler, criterion, num_epochs, gleason_mapping):
+
+  train_losses = []
+  val_losses = []
+  train_accuracies = []
+  val_accuracies = []
+
+  for epoch in range(num_epochs):
+    train_loss, train_acc = train_sum_gleason(model, device, train_loader, optimizer, criterion, gleason_mapping)
+    val_loss, val_acc = validate_sum_gleason(model, device, val_loader, criterion, gleason_mapping)
+
+    train_losses.append(train_loss)
+    train_accuracies.append(train_acc)
+    val_losses.append(val_loss)
+    val_accuracies.append(val_acc)
+
+    print_string = (f'Epoch [{epoch + 1}/{num_epochs}] - Train Loss: {train_loss:.4f} - '
+                    f'Train Accuracy: {train_acc:.4f} - Val Loss: {val_loss:.4f} - '
+                    f'Val Accuracy: {val_acc:.4f}')
+    print(print_string)
+
+    scheduler.step() 
+
+  # Creación del gráfico
+  plt.style.use("ggplot")
+  plt.figure()
+  plt.plot(np.arange(1, num_epochs + 1), train_losses, label='Train Loss')
+  plt.plot(np.arange(1, num_epochs + 1), val_losses, label='Val Loss')
+  plt.plot(np.arange(1, num_epochs + 1), train_accuracies, label='Train Accuracy')
+  plt.plot(np.arange(1, num_epochs + 1), val_accuracies, label='Val Accuracy')
+
+  plt.title("Training and Validation Metrics for Gleason Grade Prediction")
+  plt.xlabel("Epochs")
+  plt.ylabel("Loss / Accuracy")
+  plt.legend()
+  plt.show()
+
 def train_isup(model, device, train_loader, optimizer, criterion):
   model.to(device)
   model.train()
